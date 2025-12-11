@@ -1,0 +1,8 @@
+{
+  "name": "Copy of K3 Finance",
+  "description": "A professional personal finance PWA with multi-user support, Gemini AI insights, and offline capabilities.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
