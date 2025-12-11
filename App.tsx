@@ -7,7 +7,7 @@ import {
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { Transaction, TransactionType, ViewState, CATEGORIES, UserProfile, TransactionStatus } from './types';
+import { Transaction, TransactionType, ViewState, CATEGORIES, UserProfile, TransactionStatus, StorageSchema } from './types';
 import * as Storage from './services/storageService';
 import * as Gemini from './services/geminiService';
 import * as PDFService from './services/pdfService';
@@ -153,13 +153,14 @@ export default function App() {
 
   const toggleTheme = () => {
     if (!currentUser || !userProfile) return;
-    const newTheme = userProfile.theme === 'light' ? 'dark' : 'light';
-    const newData = {
+    const newTheme: 'light' | 'dark' = userProfile.theme === 'light' ? 'dark' : 'light';
+    const newProfile: UserProfile = { ...userProfile, theme: newTheme };
+    const newData: StorageSchema = {
       transactions,
-      profile: { ...userProfile, theme: newTheme }
+      profile: newProfile
     };
     Storage.saveUserData(currentUser, newData);
-    setUserProfile(newData.profile);
+    setUserProfile(newProfile);
     if (newTheme === 'dark') {
       document.documentElement.classList.add('dark');
       updateMetaThemeColor(true);
