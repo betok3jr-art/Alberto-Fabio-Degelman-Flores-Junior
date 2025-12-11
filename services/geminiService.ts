@@ -1,7 +1,14 @@
 import { GoogleGenAI } from "@google/genai";
 import { Transaction, CATEGORIES } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Helper to initialize AI only when needed
+const getAiClient = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("Chave da API não configurada.");
+  }
+  return new GoogleGenAI({ apiKey: apiKey });
+};
 
 export const analyzeFinances = async (transactions: Transaction[], month: string) => {
   // Filter only relevant fields to save tokens
@@ -28,6 +35,7 @@ export const analyzeFinances = async (transactions: Transaction[], month: string
   `;
 
   try {
+    const ai = getAiClient();
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
@@ -35,7 +43,7 @@ export const analyzeFinances = async (transactions: Transaction[], month: string
     return response.text || "Sem análise disponível.";
   } catch (error) {
     console.error("Gemini analysis error:", error);
-    return "Não foi possível analisar seus dados no momento. Verifique sua conexão.";
+    return "Não foi possível analisar seus dados no momento. Verifique sua conexão ou chave de API.";
   }
 };
 
@@ -65,6 +73,7 @@ export const parseDocumentToTransactions = async (text: string): Promise<Partial
   `;
 
   try {
+    const ai = getAiClient();
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,

@@ -9,5 +9,8 @@ export default defineConfig({
   },
   define: {
     'process.env.API_KEY': JSON.stringify(process.env.API_KEY)
+  },
+  optimizeDeps: {
+    include: ['pdfjs-dist', '@google/genai', 'jspdf', 'jspdf-autotable']
   }
 });

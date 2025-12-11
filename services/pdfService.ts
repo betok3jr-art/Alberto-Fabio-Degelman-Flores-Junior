@@ -5,15 +5,21 @@ const pdf: any = (pdfjsLib as any).default || pdfjsLib;
 
 // Set worker source to CDN matching the version
 // We use unpkg here because it provides a reliable classic script for the worker
-// which avoids "Fake worker failed" errors common with other CDNs in this context.
 const workerVersion = '3.11.174';
 
-if (pdf.GlobalWorkerOptions) {
-  pdf.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${workerVersion}/build/pdf.worker.min.js`;
+// Wrap initialization to prevent app crash if PDF lib fails to load
+try {
+  if (pdf && pdf.GlobalWorkerOptions) {
+    pdf.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${workerVersion}/build/pdf.worker.min.js`;
+  }
+} catch (e) {
+  console.warn("PDF Worker initialization failed (App will continue working):", e);
 }
 
 export const extractTextFromPDF = async (file: File): Promise<string> => {
   try {
+    if (!pdf) throw new Error("Biblioteca PDF não carregada corretamente.");
+
     const arrayBuffer = await file.arrayBuffer();
     
     // Use the resolved pdf object to call getDocument
