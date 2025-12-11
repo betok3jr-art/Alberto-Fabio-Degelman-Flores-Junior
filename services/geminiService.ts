@@ -8,14 +8,12 @@ if (!API_KEY) {
 
 const genAI = new GoogleGenerativeAI(API_KEY);
 
-// Gemini Pro (texto)
 const model = genAI.getGenerativeModel({
   model: "gemini-pro"
 });
 
 /**
- * 📌 1) ANÁLISE FINANCEIRA DO MÊS
- * Usada na aba K3 Intelligence
+ * 📌 1) Análise financeira do mês
  */
 export async function analyzeFinances(transactions: any[], monthName: string): Promise<string> {
   try {
@@ -28,21 +26,64 @@ export async function analyzeFinances(transactions: any[], monthName: string): P
       .join("\n");
 
     const prompt = `
-      Analise os dados financeiros do mês de **${monthName}**.
+      Analise os dados financeiros do mês de ${monthName}.
 
       Transações:
       ${list}
 
-      Gere um resumo completo contendo:
-      • visão geral do mês
-      • padrões de comportamento financeiro
-      • categorias mais relevantes
-      • pontos de alerta
-      • oportunidades reais de economia
-      • dicas práticas baseadas no perfil de gastos
+      Gere um resumo contendo:
+      - visão geral
+      - padrões de gasto
+      - categorias dominantes
+      - alertas importantes
+      - sugestões práticas de economia
 
-      Responda de forma amigável, organizada e direta.
+      Seja direto e amigável.
     `;
 
     const result = await model.generateContent(prompt);
     return result.response.text();
+
+  } catch (error) {
+    console.error("Erro Gemini:", error);
+    return "❌ Não foi possível gerar o resumo financeiro.";
+  }
+}
+
+/**
+ * 📌 2) Conversão de extrato (PDF/CSV → JSON)
+ */
+export async function parseDocumentToTransactions(rawText: string): Promise<any[]> {
+  try {
+    const prompt = `
+      Você é uma IA especialista em extratos bancários.
+
+      Converta o texto abaixo em uma lista JSON de transações:
+
+      Cada item deve conter:
+      - date: YYYY-MM-DD
+      - description
+      - amount
+      - category
+      - type ("income" ou "expense")
+
+      Texto recebido:
+      ${rawText}
+
+      Responda APENAS com JSON puro.
+    `;
+
+    const result = await model.generateContent(prompt);
+    let text = result.response.text().trim();
+
+    // Remove blocos markdown se houver
+    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
+
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [];
+
+  } catch (error) {
+    console.error("Erro ao converter extrato:", error);
+    return [];
+  }
+}
