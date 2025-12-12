@@ -1,67 +1,57 @@
-// ========================================
-// Gemini API Service - Versão Correta e Estável
-// ========================================
-
+// API Key para o acesso correto
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-// MODELO CORRETO DA API v1beta
+// Substituir pelo modelo correto
 const MODEL = "gemini-1.5-flash-001";
 
-// ENDPOINT CORRETO
+// Endpoint da API com o modelo correto
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
 
-// CHECAR SE A CHAVE EXISTE
+// Checar se a chave da API foi configurada corretamente
 if (!API_KEY) {
-  console.error("❌ ERRO: VITE_GEMINI_API_KEY não configurada no ambiente.");
+  console.error("❌ ERRO: A chave da API 'VITE_GEMINI_API_KEY' não foi configurada.");
 }
 
-// -----------------------------
-// Função Genérica de Chamada IA
-// -----------------------------
+// Função para chamar a Gemini API com tratamento de erros adequado
 export async function callGemini(prompt: string): Promise<string> {
   try {
     const body = {
       contents: [
         {
-          parts: [
-            { text: prompt }
-          ]
-        }
-      ]
+          parts: [{ text: prompt }],
+        },
+      ],
     };
 
     const response = await fetch(API_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
     });
 
     const data = await response.json();
 
-    // Se API retornar erro → tratar corretamente
+    // Checar se o status da resposta é ok ou se ocorreu erro
     if (!response.ok) {
       console.error("❌ Erro ao chamar Gemini:", data.error);
-      throw new Error(data.error?.message || "Falha ao chamar Gemini");
+      throw new Error(data.error?.message || "Erro desconhecido na chamada Gemini");
     }
 
-    // Extrair resposta corretamente
+    // Processar a resposta e retornar
     return (
       data?.candidates?.[0]?.content?.parts
-        ?.map((p: any) => p.text || "")
+        ?.map((part: any) => part.text || "")
         .join("") || ""
     );
-
   } catch (err) {
-    console.error("❌ Erro interno no callGemini:", err);
-    throw err;
+    console.error("❌ Erro na função callGemini:", err);
+    throw err; // Relança o erro para que a chamada seja interrompida e tratado pelo consumidor da função
   }
 }
 
-// -------------------------------------
-// IA: Análise de Lançamentos Financeiros
-// -------------------------------------
+// Função para analisar transações financeiras e gerar um resumo
 export async function analyzeFinances(transactions: any[], monthLabel: string) {
   if (!transactions.length) {
     return "Não encontrei lançamentos neste mês para analisar.";
@@ -90,9 +80,7 @@ Responda em até 3 parágrafos.
   return callGemini(prompt);
 }
 
-// ----------------------------------------
-// IA: Interpretação de extrato (PDF/CSV)
-// ----------------------------------------
+// Função para analisar um documento e gerar transações
 export async function parseDocumentToTransactions(text: string) {
   if (!text.trim()) return [];
 
