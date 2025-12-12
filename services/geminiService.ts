@@ -1,21 +1,24 @@
 // services/geminiService.ts
 import type { Transaction } from "../types";
 
+// Pegando a API KEY do Netlify (variável de ambiente)
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const MODEL = "gemini-1.5-flash-latest"; // MODELO CORRETO
+
+// Modelo correto da API Gemini
+const MODEL = "models/gemini-1.5-flash-latest";
 
 if (!API_KEY) {
-  console.warn("VITE_GEMINI_API_KEY NÃO ENCONTRADA. Configure no Netlify.");
+  console.warn("⚠️ VITE_GEMINI_API_KEY NÃO ENCONTRADA. Configure no Netlify.");
 }
 
-// Função genérica para chamar o Gemini
+// Função para chamar a API Gemini
 async function callGemini(prompt: string): Promise<string> {
   if (!API_KEY) {
-    throw new Error("Gemini API key não configurada.");
+    throw new Error("❌ Gemini API key não configurada.");
   }
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/${MODEL}:generateContent?key=${API_KEY}`,
     {
       method: "POST",
       headers: {
@@ -33,7 +36,7 @@ async function callGemini(prompt: string): Promise<string> {
 
   if (!response.ok) {
     const errText = await response.text();
-    console.error("Erro da API Gemini:", response.status, errText);
+    console.error("❌ Erro da API Gemini:", response.status, errText);
     throw new Error("Falha ao chamar Gemini.");
   }
 
@@ -46,8 +49,9 @@ async function callGemini(prompt: string): Promise<string> {
   return text.trim();
 }
 
-// -----------------------------------------------------------------------------
-// 📌 IA para analisar o mês
+// ---------------------------------------------------------------------------
+// 💡 IA para analisar o mês e gerar resumo financeiro
+// ---------------------------------------------------------------------------
 export async function analyzeFinances(
   transactions: Transaction[],
   monthLabel: string
@@ -77,4 +81,24 @@ ${resumo}
 Responda em até 3 parágrafos, com dicas simples e diretas.
 `;
 
-  return callGemini(promp
+  return callGemini(prompt);
+}
+
+// ---------------------------------------------------------------------------
+// 💡 IA para interpretar extratos (PDF/CSV convertido em texto)
+// ---------------------------------------------------------------------------
+export async function parseDocumentToTransactions(
+  text: string
+): Promise<Partial<Transaction>[]> {
+  if (!text.trim()) return [];
+
+  const prompt = `
+Você vai receber o texto de um extrato bancário ou fatura de cartão.
+
+Transforme em um JSON com este formato:
+
+[
+  {
+    "date": "AAAA-MM-DD",
+    "description": "texto",
+    "
