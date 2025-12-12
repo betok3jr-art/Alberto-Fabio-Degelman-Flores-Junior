@@ -1,30 +1,36 @@
-// ===============================
-// Gemini API Service (V1BETA)
-// ===============================
+// ========================================
+// Gemini API Service - Versão Correta e Estável
+// ========================================
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const MODEL = "gemini-1.5-flash-001"; // Modelo correto e suportado
 
+// MODELO CORRETO DA API v1beta
+const MODEL = "gemini-1.5-flash-001";
+
+// ENDPOINT CORRETO
+const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
+
+// CHECAR SE A CHAVE EXISTE
 if (!API_KEY) {
-  console.error("❌ ERRO: VITE_GEMINI_API_KEY não configurada.");
+  console.error("❌ ERRO: VITE_GEMINI_API_KEY não configurada no ambiente.");
 }
 
-/**
- * Função principal para chamar a API do Gemini
- */
+// -----------------------------
+// Função Genérica de Chamada IA
+// -----------------------------
 export async function callGemini(prompt: string): Promise<string> {
   try {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
-
     const body = {
       contents: [
         {
-          parts: [{ text: prompt }]
+          parts: [
+            { text: prompt }
+          ]
         }
       ]
     };
 
-    const response = await fetch(endpoint, {
+    const response = await fetch(API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -34,26 +40,28 @@ export async function callGemini(prompt: string): Promise<string> {
 
     const data = await response.json();
 
-    // Tratar erros da API
+    // Se API retornar erro → tratar corretamente
     if (!response.ok) {
-      console.error("❌ Erro API Gemini:", data);
+      console.error("❌ Erro ao chamar Gemini:", data.error);
       throw new Error(data.error?.message || "Falha ao chamar Gemini");
     }
 
-    // Retornar o texto gerado
+    // Extrair resposta corretamente
     return (
-      data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("") ||
-      ""
+      data?.candidates?.[0]?.content?.parts
+        ?.map((p: any) => p.text || "")
+        .join("") || ""
     );
+
   } catch (err) {
-    console.error("❌ Erro no callGemini:", err);
+    console.error("❌ Erro interno no callGemini:", err);
     throw err;
   }
 }
 
-/**
- * Análise financeira via IA
- */
+// -------------------------------------
+// IA: Análise de Lançamentos Financeiros
+// -------------------------------------
 export async function analyzeFinances(transactions: any[], monthLabel: string) {
   if (!transactions.length) {
     return "Não encontrei lançamentos neste mês para analisar.";
@@ -61,7 +69,7 @@ export async function analyzeFinances(transactions: any[], monthLabel: string) {
 
   const resumo = transactions
     .map(
-      t =>
+      (t) =>
         `${t.date} - ${t.type === "income" ? "Receita" : "Despesa"} - ${
           t.category
         } - ${t.description} - R$ ${t.amount.toFixed(2)}`
@@ -69,7 +77,7 @@ export async function analyzeFinances(transactions: any[], monthLabel: string) {
     .join("\n");
 
   const prompt = `
-Você é um assistente financeiro profissional. Analise os lançamentos abaixo e escreva um resumo objetivo.
+Você é um especialista financeiro. Analise os lançamentos abaixo e escreva um resumo profissional.
 
 Mês: ${monthLabel}
 
@@ -82,16 +90,14 @@ Responda em até 3 parágrafos.
   return callGemini(prompt);
 }
 
-/**
- * IA para interpretar extrato bancário (PDF/CSV convertido para texto)
- */
-export async function parseDocumentToTransactions(
-  text: string
-): Promise<Partial<any>[]> {
+// ----------------------------------------
+// IA: Interpretação de extrato (PDF/CSV)
+// ----------------------------------------
+export async function parseDocumentToTransactions(text: string) {
   if (!text.trim()) return [];
 
   const prompt = `
-Transforme o extrato abaixo em JSON válido:
+Converta o texto abaixo em JSON válido no formato:
 
 [
   {
@@ -103,7 +109,7 @@ Transforme o extrato abaixo em JSON válido:
   }
 ]
 
-Texto do extrato:
+Texto:
 """ 
 ${text}
 """
@@ -120,14 +126,14 @@ ${text}
     const parsed = JSON.parse(jsonText);
 
     return parsed.filter(
-      t =>
+      (t: any) =>
         t.date &&
         t.description &&
         typeof t.amount === "number" &&
-        (t.type === "expense" || t.type === "income")
+        ["expense", "income"].includes(t.type)
     );
   } catch (error) {
-    console.error("❌ Erro ao interpretar JSON:", error, raw);
+    console.error("❌ Falha ao interpretar JSON da IA:", error, raw);
     return [];
   }
 }
