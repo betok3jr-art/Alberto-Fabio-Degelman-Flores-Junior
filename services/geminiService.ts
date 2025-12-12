@@ -2,24 +2,20 @@
 import type { Transaction } from "../types";
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const MODEL = "gemini-1.5-flash";
+
+// Modelo correto que funciona no endpoint v1beta
+const MODEL = "gemini-1.5-flash-001";
 
 if (!API_KEY) {
-  console.warn("VITE_GEMINI_API_KEY NÃO ENCONTRADA. Configure no Vercel.");
+  console.warn("⚠️ VITE_GEMINI_API_KEY NÃO ENCONTRADA. Configure no Vercel.");
 }
 
 async function callGemini(prompt: string): Promise<string> {
-  if (!API_KEY) {
-    throw new Error("Gemini API key não configurada.");
-  }
-
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
 
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [
         {
@@ -31,19 +27,22 @@ async function callGemini(prompt: string): Promise<string> {
 
   if (!response.ok) {
     const errText = await response.text();
-    console.error("Erro da API Gemini:", response.status, errText);
+    console.error("❌ Erro API Gemini:", response.status, errText);
     throw new Error("Falha ao chamar Gemini.");
   }
 
   const data = await response.json();
-  const text =
+
+  return (
     data?.candidates?.[0]?.content?.parts
       ?.map((p: any) => p.text ?? "")
-      .join("") ?? "";
-
-  return text.trim();
+      .join("") ?? ""
+  );
 }
 
+// ----------------------
+// Análise financeira
+// ----------------------
 export async function analyzeFinances(
   transactions: Transaction[],
   monthLabel: string
@@ -76,34 +75,32 @@ Responda em até 3 parágrafos, com dicas simples e diretas.
   return callGemini(prompt);
 }
 
+// ----------------------
+// PDF → JSON
+// ----------------------
 export async function parseDocumentToTransactions(
   text: string
 ): Promise<Partial<Transaction>[]> {
   if (!text.trim()) return [];
 
   const prompt = `
-Você vai receber o texto de um extrato bancário ou fatura de cartão.
+Converta o texto do extrato abaixo em JSON.
 
-Transforme em um JSON com este formato:
-
+Formato:
 [
   {
     "date": "AAAA-MM-DD",
     "description": "texto",
     "category": "📦 Outros",
     "type": "expense" ou "income",
-    "amount": 123.45
+    "amount": 0
   }
 ]
 
-Regras:
-- Use "expense" para saídas/gastos e "income" para entradas/receitas.
-- Se não souber a categoria, use "📦 Outros".
-- A data deve estar no formato "AAAA-MM-DD".
-- NÃO escreva explicação, apenas o JSON.
+NÃO explique nada, responda apenas com JSON válido.
 
-Texto do extrato:
-""" 
+Extrato:
+"""
 ${text}
 """
 `;
@@ -111,22 +108,21 @@ ${text}
   const raw = await callGemini(prompt);
 
   try {
-    const jsonStart = raw.indexOf("[");
-    const jsonEnd = raw.lastIndexOf("]");
-    if (jsonStart === -1 || jsonEnd === -1) return [];
+    const start = raw.indexOf("[");
+    const end = raw.lastIndexOf("]");
+    if (start === -1 || end === -1) return [];
 
-    const jsonText = raw.slice(jsonStart, jsonEnd + 1);
-    const parsed = JSON.parse(jsonText) as Partial<Transaction>[];
+    const json = JSON.parse(raw.slice(start, end + 1));
 
-    return parsed.filter(
-      (t) =>
+    return json.filter(
+      (t: any) =>
         t.date &&
         t.description &&
         typeof t.amount === "number" &&
-        (t.type === "expense" || t.type === "income")
+        (t.type === "income" || t.type === "expense")
     );
-  } catch (e) {
-    console.error("Erro ao interpretar JSON vindo da IA:", e, raw);
+  } catch (err) {
+    console.error("❌ Erro ao interpretar JSON:", err, raw);
     return [];
   }
 }
