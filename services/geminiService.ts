@@ -2,12 +2,13 @@
 import type { Transaction } from "../types";
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const MODEL = "gemini-1.5-flash";
+const MODEL = "gemini-1.5-flash-latest"; // MODELO CORRETO
 
 if (!API_KEY) {
   console.warn("VITE_GEMINI_API_KEY NÃO ENCONTRADA. Configure no Netlify.");
 }
 
+// Função genérica para chamar o Gemini
 async function callGemini(prompt: string): Promise<string> {
   if (!API_KEY) {
     throw new Error("Gemini API key não configurada.");
@@ -45,7 +46,8 @@ async function callGemini(prompt: string): Promise<string> {
   return text.trim();
 }
 
-// 💡 IA para analisar o mês
+// -----------------------------------------------------------------------------
+// 📌 IA para analisar o mês
 export async function analyzeFinances(
   transactions: Transaction[],
   monthLabel: string
@@ -75,62 +77,4 @@ ${resumo}
 Responda em até 3 parágrafos, com dicas simples e diretas.
 `;
 
-  return callGemini(prompt);
-}
-
-// 💡 IA para ler extrato (PDF/CSV convertido em texto)
-export async function parseDocumentToTransactions(
-  text: string
-): Promise<Partial<Transaction>[]> {
-  if (!text.trim()) return [];
-
-  const prompt = `
-Você vai receber o texto de um extrato bancário ou fatura de cartão.
-
-Transforme em um JSON com este formato:
-
-[
-  {
-    "date": "AAAA-MM-DD",
-    "description": "texto",
-    "category": "📦 Outros",
-    "type": "expense" ou "income",
-    "amount": 123.45
-  }
-]
-
-Regras:
-- Use "expense" para saídas/gastos e "income" para entradas/receitas.
-- Se não souber a categoria, use "📦 Outros".
-- A data deve estar no formato "AAAA-MM-DD".
-- NÃO escreva explicação, apenas o JSON.
-
-Texto do extrato:
-""" 
-${text}
-"""
-`;
-
-  const raw = await callGemini(prompt);
-
-  try {
-    const jsonStart = raw.indexOf("[");
-    const jsonEnd = raw.lastIndexOf("]");
-    if (jsonStart === -1 || jsonEnd === -1) return [];
-
-    const jsonText = raw.slice(jsonStart, jsonEnd + 1);
-    const parsed = JSON.parse(jsonText) as Partial<Transaction>[];
-
-    // Filtro básico
-    return parsed.filter(
-      (t) =>
-        t.date &&
-        t.description &&
-        typeof t.amount === "number" &&
-        (t.type === "expense" || t.type === "income")
-    );
-  } catch (e) {
-    console.error("Erro ao interpretar JSON vindo da IA:", e, raw);
-    return [];
-  }
-}
+  return callGemini(promp
