@@ -1,89 +1,136 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+// services/geminiService.ts
+import type { Transaction } from "../types";
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const MODEL = "gemini-1.5-flash";
 
 if (!API_KEY) {
-  console.warn("⚠️ A variável VITE_GEMINI_API_KEY não está definida no ambiente.");
+  console.warn("VITE_GEMINI_API_KEY NÃO ENCONTRADA. Configure no Netlify.");
 }
 
-const genAI = new GoogleGenerativeAI(API_KEY);
-
-const model = genAI.getGenerativeModel({
-  model: "gemini-pro"
-});
-
-/**
- * 📌 1) Análise financeira do mês
- */
-export async function analyzeFinances(transactions: any[], monthName: string): Promise<string> {
-  try {
-    if (transactions.length === 0) {
-      return "Nenhuma transação encontrada para análise.";
-    }
-
-    const list = transactions
-      .map(t => `${t.date} | ${t.type} | ${t.category} | R$ ${t.amount} | ${t.description}`)
-      .join("\n");
-
-    const prompt = `
-      Analise os dados financeiros do mês de ${monthName}.
-
-      Transações:
-      ${list}
-
-      Gere um resumo contendo:
-      - visão geral
-      - padrões de gasto
-      - categorias dominantes
-      - alertas importantes
-      - sugestões práticas de economia
-
-      Seja direto e amigável.
-    `;
-
-    const result = await model.generateContent(prompt);
-    return result.response.text();
-
-  } catch (error) {
-    console.error("Erro Gemini:", error);
-    return "❌ Não foi possível gerar o resumo financeiro.";
+async function callGemini(prompt: string): Promise<string> {
+  if (!API_KEY) {
+    throw new Error("Gemini API key não configurada.");
   }
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: prompt }],
+          },
+        ],
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error("Erro da API Gemini:", response.status, errText);
+    throw new Error("Falha ao chamar Gemini.");
+  }
+
+  const data = await response.json();
+  const text =
+    data?.candidates?.[0]?.content?.parts
+      ?.map((p: any) => p.text ?? "")
+      .join("") ?? "";
+
+  return text.trim();
 }
 
-/**
- * 📌 2) Conversão de extrato (PDF/CSV → JSON)
- */
-export async function parseDocumentToTransactions(rawText: string): Promise<any[]> {
+// 💡 IA para analisar o mês
+export async function analyzeFinances(
+  transactions: Transaction[],
+  monthLabel: string
+): Promise<string> {
+  if (!transactions.length) {
+    return "Não encontrei lançamentos neste mês para analisar.";
+  }
+
+  const resumo = transactions
+    .map(
+      (t) =>
+        `${t.date} - ${t.type === "income" ? "Receita" : "Despesa"} - ${
+          t.category
+        } - ${t.description} - R$ ${t.amount.toFixed(2)}`
+    )
+    .join("\n");
+
+  const prompt = `
+Você é um assistente financeiro. Analise os lançamentos abaixo e escreva um resumo
+curto e objetivo em português do Brasil.
+
+Mês: ${monthLabel}
+
+Lançamentos:
+${resumo}
+
+Responda em até 3 parágrafos, com dicas simples e diretas.
+`;
+
+  return callGemini(prompt);
+}
+
+// 💡 IA para ler extrato (PDF/CSV convertido em texto)
+export async function parseDocumentToTransactions(
+  text: string
+): Promise<Partial<Transaction>[]> {
+  if (!text.trim()) return [];
+
+  const prompt = `
+Você vai receber o texto de um extrato bancário ou fatura de cartão.
+
+Transforme em um JSON com este formato:
+
+[
+  {
+    "date": "AAAA-MM-DD",
+    "description": "texto",
+    "category": "📦 Outros",
+    "type": "expense" ou "income",
+    "amount": 123.45
+  }
+]
+
+Regras:
+- Use "expense" para saídas/gastos e "income" para entradas/receitas.
+- Se não souber a categoria, use "📦 Outros".
+- A data deve estar no formato "AAAA-MM-DD".
+- NÃO escreva explicação, apenas o JSON.
+
+Texto do extrato:
+""" 
+${text}
+"""
+`;
+
+  const raw = await callGemini(prompt);
+
   try {
-    const prompt = `
-      Você é uma IA especialista em extratos bancários.
+    const jsonStart = raw.indexOf("[");
+    const jsonEnd = raw.lastIndexOf("]");
+    if (jsonStart === -1 || jsonEnd === -1) return [];
 
-      Converta o texto abaixo em uma lista JSON de transações:
+    const jsonText = raw.slice(jsonStart, jsonEnd + 1);
+    const parsed = JSON.parse(jsonText) as Partial<Transaction>[];
 
-      Cada item deve conter:
-      - date: YYYY-MM-DD
-      - description
-      - amount
-      - category
-      - type ("income" ou "expense")
-
-      Texto recebido:
-      ${rawText}
-
-      Responda APENAS com JSON puro.
-    `;
-
-    const result = await model.generateContent(prompt);
-    let text = result.response.text().trim();
-
-    // Remove blocos markdown se houver
-    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
-
-    const parsed = JSON.parse(text);
-    return Array.isArray(parsed) ? parsed : [];
-
-  } catch (error) {
-    console.error("Erro ao converter extrato:", error);
+    // Filtro básico
+    return parsed.filter(
+      (t) =>
+        t.date &&
+        t.description &&
+        typeof t.amount === "number" &&
+        (t.type === "expense" || t.type === "income")
+    );
+  } catch (e) {
+    console.error("Erro ao interpretar JSON vindo da IA:", e, raw);
     return [];
   }
 }
