@@ -31,8 +31,7 @@ export enum ViewState {
   REGISTER = 'REGISTER',
   DASHBOARD = 'DASHBOARD',
   LIST = 'LIST',
-  REPORTS = 'REPORTS',
-  AI_INSIGHTS = 'AI_INSIGHTS'
+  REPORTS = 'REPORTS'
 }
 
 export const CATEGORIES = {

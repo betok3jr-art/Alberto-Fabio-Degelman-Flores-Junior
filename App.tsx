@@ -1,16 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Plus, ChevronLeft, ChevronRight, BarChart3, List, 
-  Settings, LogOut, Trash2, CheckCircle, 
-  Sparkles, Download, Moon, FileText, Calendar, Repeat, X, UploadCloud, FileUp, Check
+  Settings, LogOut, Trash2, 
+  Download, Moon, FileText, Calendar, Repeat, X, Upload, Save, AlertCircle
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { Transaction, TransactionType, ViewState, CATEGORIES, UserProfile, TransactionStatus, StorageSchema } from './types';
 import * as Storage from './services/storageService';
-import * as Gemini from './services/geminiService';
-import * as PDFService from './services/pdfService';
 
 // C6 Style Palette: Carbon, Gold, Silver
 const COLORS = ['#FFD700', '#242424', '#71717a', '#a1a1aa', '#d4d4d8', '#f4f4f5', '#000000'];
@@ -26,12 +24,8 @@ export default function App() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showForm, setShowForm] = useState(false);
   const [editItem, setEditItem] = useState<Transaction | null>(null);
-  const [loadingAI, setLoadingAI] = useState(false);
-  const [aiInsight, setAiInsight] = useState<string>('');
   
-  // --- Import State ---
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [importPreview, setImportPreview] = useState<Partial<Transaction>[]>([]);
+  // --- Backup State ---
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Form State ---
@@ -54,8 +48,6 @@ export default function App() {
   const updateMetaThemeColor = (isDark: boolean) => {
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) {
-      // Dark mode: Matches header/bg-black | Light mode: Matches bg-[#F2F2F2] or header
-      // We keep header color (zinc-900) for continuity or background color
       meta.setAttribute('content', isDark ? '#000000' : '#18181b'); 
     }
   };
@@ -83,7 +75,6 @@ export default function App() {
         }
       }
     } else {
-      // Login screen defaults
       updateMetaThemeColor(true);
     }
   }, [currentUser]);
@@ -143,12 +134,11 @@ export default function App() {
   const logout = () => {
     setCurrentUser(null);
     setTransactions([]);
-    setAiInsight('');
     setLoginName('');
     setLoginPin('');
     setView(ViewState.LOGIN);
     document.documentElement.classList.remove('dark');
-    updateMetaThemeColor(true); // Login screen is dark
+    updateMetaThemeColor(true);
   };
 
   const toggleTheme = () => {
@@ -186,7 +176,7 @@ export default function App() {
     setTransactions(prev => prev.map(tr => tr.id === t.id ? updated : tr));
   };
 
-  // --- Export Actions ---
+  // --- Export/Import Actions ---
 
   const exportCSV = () => {
     const headers = "Data,Descrição,Categoria,Tipo,Valor,Status\n";
@@ -207,9 +197,9 @@ export default function App() {
     const doc = new jsPDF();
     
     // Header
-    doc.setFillColor(36, 36, 36); // Carbon
+    doc.setFillColor(36, 36, 36);
     doc.rect(0, 0, 210, 40, 'F');
-    doc.setTextColor(255, 215, 0); // Gold
+    doc.setTextColor(255, 215, 0);
     doc.setFontSize(22);
     doc.text("K3 Finance", 14, 25);
     doc.setTextColor(255, 255, 255);
@@ -244,74 +234,61 @@ export default function App() {
     doc.save(`relatorio_k3_${currentDate.getMonth()+1}.pdf`);
   };
 
-  // --- Import Actions ---
-
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setLoadingAI(true);
-    setShowImportModal(true);
-
-    try {
-      let textContent = '';
-
-      if (file.type === 'application/pdf') {
-        textContent = await PDFService.extractTextFromPDF(file);
-      } else {
-        // Assume text/csv
-        textContent = await file.text();
-      }
-
-      // Send to Gemini
-      const extractedData = await Gemini.parseDocumentToTransactions(textContent);
-      setImportPreview(extractedData);
-      
-    } catch (error) {
-      alert("Erro ao ler arquivo: " + error);
-      setShowImportModal(false);
-    } finally {
-      setLoadingAI(false);
-      // Reset input
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+  const exportBackup = () => {
+    if (!currentUser || !userProfile) return;
+    const data: StorageSchema = {
+      transactions: transactions,
+      profile: userProfile
+    };
+    const jsonString = JSON.stringify(data);
+    const blob = new Blob([jsonString], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `k3_backup_${currentUser}_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  const confirmImport = () => {
-    if (!currentUser) return;
-    
-    // Convert preview to actual transactions and filter duplicates
-    const newTransactions: Transaction[] = [];
-    
-    importPreview.forEach(item => {
-      // Basic duplicate detection
-      const isDuplicate = transactions.some(t => 
-        t.date === item.date && 
-        t.amount === item.amount && 
-        t.description === item.description
+  const handleBackupImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !currentUser) return;
+
+    try {
+      const text = await file.text();
+      const data: StorageSchema = JSON.parse(text);
+      
+      if (!data.transactions || !data.profile) {
+        throw new Error("Arquivo inválido");
+      }
+
+      // Merge transactions instead of replace to be safer? Or Replace?
+      // "Restaurar" usually implies replace or merge. Let's merge unique IDs.
+      // But user might want to move data between devices.
+      // Let's ask confirmation logic implicitly by success message.
+      
+      const newTransactions = data.transactions.filter(nt => 
+        !transactions.some(et => et.id === nt.id)
       );
 
-      if (!isDuplicate && item.amount && item.date && item.description && item.type) {
-         newTransactions.push({
-           id: Storage.generateId(),
-           type: item.type as TransactionType,
-           description: item.description,
-           amount: item.amount || 0,
-           category: item.category || '📦 Outros',
-           date: item.date,
-           status: 'paid', // Imported usually means processed/banked
-           isRecurring: false
-         });
-      }
-    });
+      const mergedTransactions = [...transactions, ...newTransactions];
+      
+      // Update storage
+      const newData: StorageSchema = {
+        transactions: mergedTransactions,
+        profile: { ...userProfile!, ...data.profile, name: userProfile!.name, pin: userProfile!.pin } // Keep current auth
+      };
+      
+      Storage.saveUserData(currentUser, newData);
+      setTransactions(mergedTransactions);
+      alert(`${newTransactions.length} transações importadas com sucesso!`);
 
-    Storage.addTransactions(currentUser, newTransactions);
-    setTransactions(prev => [...prev, ...newTransactions]);
-    setShowImportModal(false);
-    setImportPreview([]);
-    // Switch to list view to see results
-    setView(ViewState.LIST);
-    // Maybe update current date to match import? For now keep current.
+    } catch (error) {
+      alert("Erro ao importar backup. Verifique se o arquivo é um .json válido do K3.");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   // --- CRUD Actions ---
@@ -339,7 +316,6 @@ export default function App() {
       if (!formIsFixed) {
         count = formInstallments; 
       } else {
-        // Fixed logic
         if (formFrequency === 'monthly') count = 12;
         if (formFrequency === 'weekly') count = 12; 
         if (formFrequency === 'yearly') count = 2; 
@@ -394,7 +370,7 @@ export default function App() {
       setFormDate(t.date);
       setFormInstallments(1);
       setFormIsFixed(!!t.isRecurring);
-      setFormFrequency('monthly'); // Default
+      setFormFrequency('monthly');
     } else {
       setEditItem(null);
       setFormDesc('');
@@ -411,13 +387,6 @@ export default function App() {
   const closeForm = () => {
     setShowForm(false);
     setEditItem(null);
-  };
-
-  const runAnalysis = async () => {
-    setLoadingAI(true);
-    const result = await Gemini.analyzeFinances(currentMonthTransactions, getMonthLabel(currentDate));
-    setAiInsight(result);
-    setLoadingAI(false);
   };
 
   // --- Render Functions ---
@@ -478,7 +447,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F2F2F2] dark:bg-[#000000] text-zinc-900 dark:text-zinc-100 pb-28 transition-colors duration-300 font-sans">
       
-      {/* C6 Style Header */}
+      {/* Header */}
       <header className="bg-zinc-900 text-white px-6 pt-8 pb-10 rounded-b-[2.5rem] shadow-2xl relative z-10">
         <div className="flex justify-between items-center mb-8">
           <div className="flex items-center gap-4">
@@ -512,7 +481,7 @@ export default function App() {
           </button>
         </div>
 
-        {/* Summary Cards - Minimalist */}
+        {/* Summary Cards */}
         {view === ViewState.LIST && (
            <div className="flex justify-between gap-4 mt-2">
              <div className="flex-1">
@@ -629,53 +598,6 @@ export default function App() {
           </div>
         )}
 
-        {view === ViewState.AI_INSIGHTS && (
-          <div className="space-y-6 pt-4">
-             <div className="bg-zinc-900 rounded-[2rem] p-8 text-white shadow-xl relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-[#FFD700] blur-[80px] opacity-20"></div>
-                <div className="flex items-center gap-3 mb-6 relative z-10">
-                  <div className="p-2 bg-white/10 rounded-xl">
-                    <Sparkles className="text-[#FFD700]" size={20} />
-                  </div>
-                  <h2 className="font-bold text-lg tracking-wide">K3 Intelligence</h2>
-                </div>
-                
-                {aiInsight ? (
-                  <div className="bg-white/5 backdrop-blur-md p-6 rounded-2xl mb-6 border border-white/10 animate-fade-in">
-                    <p className="text-sm leading-relaxed text-zinc-300 whitespace-pre-line font-light">{aiInsight}</p>
-                  </div>
-                ) : (
-                  <p className="text-zinc-400 text-sm mb-8 font-light leading-relaxed">
-                    Nossa IA analisa seu comportamento financeiro e gera insights exclusivos para otimizar seus gastos.
-                  </p>
-                )}
-
-                <button 
-                  onClick={runAnalysis}
-                  disabled={loadingAI}
-                  className="w-full bg-[#FFD700] text-black font-bold py-4 rounded-xl shadow-lg hover:bg-yellow-400 transition disabled:opacity-50 uppercase tracking-wider text-xs"
-                >
-                  {loadingAI ? 'Processando...' : 'Gerar Resumo do Mês'}
-                </button>
-             </div>
-
-             <div className="grid grid-cols-2 gap-4">
-                <button onClick={exportPDF} className="bg-white dark:bg-[#18181b] p-6 rounded-[2rem] shadow-sm border border-zinc-100 dark:border-zinc-800 flex flex-col items-center justify-center gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition">
-                   <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 text-red-600 rounded-full flex items-center justify-center">
-                     <FileText size={20} />
-                   </div>
-                   <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">Baixar PDF</span>
-                </button>
-                <button onClick={exportCSV} className="bg-white dark:bg-[#18181b] p-6 rounded-[2rem] shadow-sm border border-zinc-100 dark:border-zinc-800 flex flex-col items-center justify-center gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition">
-                   <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 text-green-600 rounded-full flex items-center justify-center">
-                     <Download size={20} />
-                   </div>
-                   <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">Baixar CSV</span>
-                </button>
-             </div>
-          </div>
-        )}
-
         {view === ViewState.REPORTS && (
           <div className="space-y-4 pt-4">
              <div className="bg-white dark:bg-[#18181b] rounded-[2rem] p-6 shadow-sm border border-zinc-100 dark:border-zinc-800">
@@ -693,34 +615,64 @@ export default function App() {
                   </button>
                </div>
 
-                <div className="py-4 border-b border-zinc-100 dark:border-zinc-800">
-                  <label htmlFor="import-file" className="cursor-pointer flex items-center justify-between w-full">
-                     <div className="flex items-center gap-3 text-zinc-700 dark:text-zinc-300">
-                        <div className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
-                           <UploadCloud size={18} />
-                        </div>
-                        <span className="font-medium">Importar Extrato (PDF/CSV)</span>
-                     </div>
-                     <span className="text-[#FFD700] bg-zinc-900 px-2 py-1 rounded text-xs font-bold">AI</span>
-                  </label>
+               <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400 mt-8 mb-4">Exportar Dados</h2>
+               
+               <button onClick={exportPDF} className="w-full flex items-center justify-between py-4 border-b border-zinc-100 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition px-2 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-red-100 dark:bg-red-900/20 text-red-600 rounded-lg">
+                      <FileText size={18} />
+                    </div>
+                    <span className="font-medium">Relatório Mensal (PDF)</span>
+                  </div>
+                  <Download size={16} className="text-zinc-400" />
+               </button>
+
+               <button onClick={exportCSV} className="w-full flex items-center justify-between py-4 border-b border-zinc-100 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition px-2 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-green-100 dark:bg-green-900/20 text-green-600 rounded-lg">
+                      <FileText size={18} />
+                    </div>
+                    <span className="font-medium">Extrato Completo (CSV)</span>
+                  </div>
+                  <Download size={16} className="text-zinc-400" />
+               </button>
+
+               <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-400 mt-8 mb-4">Backup (Segurança)</h2>
+
+               <button onClick={exportBackup} className="w-full flex items-center justify-between py-4 border-b border-zinc-100 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition px-2 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-100 dark:bg-blue-900/20 text-blue-600 rounded-lg">
+                      <Save size={18} />
+                    </div>
+                    <span className="font-medium">Salvar Backup (JSON)</span>
+                  </div>
+                  <Download size={16} className="text-zinc-400" />
+               </button>
+
+               <label className="cursor-pointer w-full flex items-center justify-between py-4 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition px-2 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-orange-100 dark:bg-orange-900/20 text-orange-600 rounded-lg">
+                      <Upload size={18} />
+                    </div>
+                    <span className="font-medium">Restaurar Backup (JSON)</span>
+                  </div>
+                  <div className="text-xs bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded text-zinc-500 font-bold">IMPORTAR</div>
                   <input 
-                    id="import-file" 
                     type="file" 
-                    accept=".csv, .pdf"
+                    accept=".json"
                     ref={fileInputRef}
                     className="hidden" 
-                    onChange={handleFileUpload}
+                    onChange={handleBackupImport}
                   />
-               </div>
+               </label>
 
-               <div className="flex items-center justify-between py-4 text-zinc-400">
+               <div className="flex items-center justify-between py-4 mt-6 text-zinc-400 border-t border-zinc-100 dark:border-zinc-800">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
                        <Settings size={18} />
                     </div>
-                    <span className="font-medium">Versão 2.1 (Import AI)</span>
+                    <span className="font-medium">Versão 2.2 (Offline)</span>
                   </div>
-                  <span className="text-xs">Atualizado</span>
                </div>
              </div>
           </div>
@@ -728,7 +680,7 @@ export default function App() {
 
       </main>
 
-      {/* FAB - Floating Action Button - Minimalist C6 Style */}
+      {/* FAB */}
       {view === ViewState.LIST && (
         <button 
           onClick={() => openForm()}
@@ -738,7 +690,7 @@ export default function App() {
         </button>
       )}
 
-      {/* Bottom Navigation - Glassmorphism */}
+      {/* Bottom Navigation */}
       <nav className="fixed bottom-6 left-6 right-6 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-xl rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-white/20 dark:border-zinc-800/50 flex justify-around py-4 z-50">
         <button onClick={() => setView(ViewState.LIST)} className={`flex flex-col items-center gap-1 ${view === ViewState.LIST ? 'text-black dark:text-[#FFD700]' : 'text-zinc-400'}`}>
           <List size={20} strokeWidth={view === ViewState.LIST ? 2.5 : 2} />
@@ -746,63 +698,10 @@ export default function App() {
         <button onClick={() => setView(ViewState.DASHBOARD)} className={`flex flex-col items-center gap-1 ${view === ViewState.DASHBOARD ? 'text-black dark:text-[#FFD700]' : 'text-zinc-400'}`}>
           <BarChart3 size={20} strokeWidth={view === ViewState.DASHBOARD ? 2.5 : 2} />
         </button>
-        <button onClick={() => setView(ViewState.AI_INSIGHTS)} className={`flex flex-col items-center gap-1 ${view === ViewState.AI_INSIGHTS ? 'text-black dark:text-[#FFD700]' : 'text-zinc-400'}`}>
-          <Sparkles size={20} strokeWidth={view === ViewState.AI_INSIGHTS ? 2.5 : 2} />
-        </button>
         <button onClick={() => setView(ViewState.REPORTS)} className={`flex flex-col items-center gap-1 ${view === ViewState.REPORTS ? 'text-black dark:text-[#FFD700]' : 'text-zinc-400'}`}>
           <Settings size={20} strokeWidth={view === ViewState.REPORTS ? 2.5 : 2} />
         </button>
       </nav>
-
-      {/* Import Modal */}
-      {showImportModal && (
-        <div className="fixed inset-0 bg-black/80 z-[70] flex items-center justify-center p-4 backdrop-blur-sm">
-           <div className="bg-white dark:bg-[#18181b] w-full max-w-lg rounded-[2rem] p-6 shadow-2xl border border-zinc-100 dark:border-zinc-800 max-h-[80vh] flex flex-col">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold dark:text-white flex items-center gap-2">
-                  {loadingAI ? <Sparkles className="animate-pulse text-[#FFD700]" /> : <FileUp />}
-                  {loadingAI ? 'Analisando Documento...' : 'Confirmar Importação'}
-                </h3>
-                {!loadingAI && (
-                  <button onClick={() => setShowImportModal(false)} className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-full text-zinc-500">
-                    <X size={18} />
-                  </button>
-                )}
-              </div>
-
-              {loadingAI ? (
-                <div className="flex flex-col items-center justify-center py-10 gap-4 text-center">
-                   <div className="w-12 h-12 border-4 border-zinc-200 border-t-[#FFD700] rounded-full animate-spin"></div>
-                   <p className="text-zinc-500 text-sm">A IA está lendo seu extrato e categorizando os gastos...</p>
-                </div>
-              ) : (
-                <>
-                  <div className="overflow-y-auto flex-1 mb-4 space-y-2 pr-2">
-                     <p className="text-sm text-zinc-500 mb-2">Encontramos {importPreview.length} transações:</p>
-                     {importPreview.map((item, idx) => (
-                        <div key={idx} className="flex justify-between items-center p-3 bg-zinc-50 dark:bg-zinc-900 rounded-xl text-sm">
-                           <div>
-                              <p className="font-bold dark:text-white truncate max-w-[180px]">{item.description}</p>
-                              <p className="text-xs text-zinc-400">{item.date} • {item.category}</p>
-                           </div>
-                           <span className={item.type === 'expense' ? 'text-red-500' : 'text-green-500 font-bold'}>
-                              {item.type === 'expense' ? '-' : '+'}{formatMoney(item.amount || 0)}
-                           </span>
-                        </div>
-                     ))}
-                  </div>
-                  <button 
-                    onClick={confirmImport}
-                    className="w-full bg-[#FFD700] text-black font-bold py-4 rounded-xl shadow-lg hover:bg-yellow-400 transition active:scale-95 uppercase tracking-wide flex items-center justify-center gap-2"
-                  >
-                    <CheckCircle size={20} />
-                    Importar Tudo
-                  </button>
-                </>
-              )}
-           </div>
-        </div>
-      )}
 
       {/* Transaction Modal Form */}
       {showForm && (
