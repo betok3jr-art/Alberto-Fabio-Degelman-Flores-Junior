@@ -12,8 +12,8 @@ export async function callGemini(prompt: string) {
         body: JSON.stringify({
           contents: [
             {
-              parts: [{ text: prompt }]
-            }
+              parts: [{ text: prompt }],
+            },
           ],
         }),
       }
@@ -22,9 +22,12 @@ export async function callGemini(prompt: string) {
     const data = await response.json();
     console.log("Gemini API Response:", data);
 
-    // Retorna o texto gerado
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+    if (data.error) {
+      console.error("Erro API Gemini:", data.error);
+      return null;
+    }
 
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
   } catch (error) {
     console.error("Erro da API Gemini:", error);
     return null;
